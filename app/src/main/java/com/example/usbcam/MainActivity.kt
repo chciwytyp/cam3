@@ -8,33 +8,33 @@ import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
-import com.example.usbcam.databinding.ActivityMainBinding
+import com.jiangdg.ausbc.MultiCameraClient
 import com.jiangdg.ausbc.base.CameraActivity
 import com.jiangdg.ausbc.callback.ICameraStateCallBack
 import com.jiangdg.ausbc.callback.ICaptureCallBack
-import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.ausbc.widget.IAspectRatio
-import com.jiangdg.ausbc.MultiCameraClient
 import java.io.File
 
 class MainActivity : CameraActivity() {
-    private lateinit var b: ActivityMainBinding
+    private lateinit var root: View
 
     override fun getRootView(layoutInflater: LayoutInflater): View {
-        b = ActivityMainBinding.inflate(layoutInflater)
-        return b.root
+        root = layoutInflater.inflate(R.layout.activity_main, null)
+        return root
     }
 
     override fun getCameraView(): IAspectRatio = AspectRatioTextureView(this)
 
-    override fun getCameraViewContainer(): ViewGroup = b.cameraContainer
+    override fun getCameraViewContainer(): ViewGroup = root.findViewById(R.id.cameraContainer)
 
     override fun initView() {
         super.initView()
-        b.btnShot.setOnClickListener { takePhoto() }
-        b.btnGallery.setOnClickListener { openGallery() }
+        root.findViewById<Button>(R.id.btnShot).setOnClickListener { takePhoto() }
+        root.findViewById<Button>(R.id.btnGallery).setOnClickListener { openGallery() }
     }
 
     override fun onCameraState(
@@ -43,12 +43,13 @@ class MainActivity : CameraActivity() {
         msg: String?
     ) {
         runOnUiThread {
+            val status = root.findViewById<TextView>(R.id.status)
             when (code) {
-                ICameraStateCallBack.State.OPENED -> b.status.visibility = View.GONE
+                ICameraStateCallBack.State.OPENED -> status.visibility = View.GONE
                 else -> {
-                    b.status.text = if (code == ICameraStateCallBack.State.ERROR)
+                    status.text = if (code == ICameraStateCallBack.State.ERROR)
                         "Błąd kamery: $msg" else "Nie wykryto kamery OTG"
-                    b.status.visibility = View.VISIBLE
+                    status.visibility = View.VISIBLE
                 }
             }
         }
