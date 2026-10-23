@@ -11,16 +11,37 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import com.jiangdg.ausbc.CameraClient
 import com.jiangdg.ausbc.MultiCameraClient
 import com.jiangdg.ausbc.base.CameraActivity
 import com.jiangdg.ausbc.callback.ICameraStateCallBack
 import com.jiangdg.ausbc.callback.ICaptureCallBack
+import com.jiangdg.ausbc.camera.CameraUvcStrategy
+import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.ausbc.widget.IAspectRatio
 import java.io.File
 
 class MainActivity : CameraActivity() {
     private lateinit var root: View
+
+    private val client: CameraClient by lazy {
+        CameraClient.newBuilder(this)
+            .setEnableGLES(true)
+            .setRawImage(true)
+            .setCameraStrategy(CameraUvcStrategy(this))
+            .setCameraRequest(
+                CameraRequest.CameraRequestBuilder()
+                    .setFrontCamera(false)
+                    .setPreviewWidth(640)
+                    .setPreviewHeight(480)
+                    .create()
+            )
+            .openDebug(false)
+            .build()
+    }
+
+    override fun getCameraClient(): CameraClient? = client
 
     override fun getRootView(layoutInflater: LayoutInflater): View {
         root = layoutInflater.inflate(R.layout.activity_main, null)
@@ -38,7 +59,7 @@ class MainActivity : CameraActivity() {
     }
 
     override fun onCameraState(
-        self: MultiCameraClient.ICamera,
+        self: MultiCameraClient.Camera,
         code: ICameraStateCallBack.State,
         msg: String?
     ) {
@@ -56,11 +77,11 @@ class MainActivity : CameraActivity() {
     }
 
     private fun takePhoto() {
-        if (!isCameraOpened()) {
+        if (client.isCameraOpened() != true) {
             toast("Brak kamery"); return
         }
         val tmp = File(cacheDir, "shot_${System.currentTimeMillis()}.jpg")
-        captureImage(object : ICaptureCallBack {
+        client.captureImage(object : ICaptureCallBack {
             override fun onBegin() {}
             override fun onError(error: String?) = toast("Błąd: $error")
             override fun onComplete(path: String?) {
