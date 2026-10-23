@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="#000000">
+
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1">
+        <FrameLayout android:id="@+id/cameraContainer"
+            android:layout_width="match_parent" android:layout_height="match_parent" />
+        <TextView android:id="@+id/status"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:gravity="center" android:text="Nie wykryto kamery OTG"
+            android:textColor="#FFFFFF" android:textSize="18sp" />
+    </FrameLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:padding="12dp">
+        <Button android:id="@+id/btnShot" android:layout_width="0dp"
+            android:layout_height="64dp" android:layout_weight="1"
+            android:layout_marginEnd="6dp" android:text="Zrób zdjęcie" />
+        <Button android:id="@+id/btnGallery" android:layout_width="0dp"
+            android:layout_height="64dp" android:layout_weight="1"
+            android:layout_marginStart="6dp" android:text="Galeria" />
+    </LinearLayout>
+</LinearLayout>
