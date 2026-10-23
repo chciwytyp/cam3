@@ -4,6 +4,8 @@ import android.content.ContentValues
 import android.content.Intent
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.view.View
@@ -12,33 +14,32 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import com.jiangdg.ausbc.CameraClient
-import com.jiangdg.ausbc.MultiCameraClient
 import com.jiangdg.ausbc.base.CameraActivity
-import com.jiangdg.ausbc.callback.ICameraStateCallBack
 import com.jiangdg.ausbc.callback.ICaptureCallBack
 import com.jiangdg.ausbc.camera.CameraUvcStrategy
-import com.jiangdg.ausbc.camera.bean.CameraRequest
 import com.jiangdg.ausbc.widget.AspectRatioTextureView
 import com.jiangdg.ausbc.widget.IAspectRatio
 import java.io.File
 
 class MainActivity : CameraActivity() {
     private lateinit var root: View
+    private val handler = Handler(Looper.getMainLooper())
 
     private val client: CameraClient by lazy {
         CameraClient.newBuilder(this)
             .setEnableGLES(true)
             .setRawImage(true)
             .setCameraStrategy(CameraUvcStrategy(this))
-            .setCameraRequest(
-                CameraRequest.CameraRequestBuilder()
-                    .setFrontCamera(false)
-                    .setPreviewWidth(640)
-                    .setPreviewHeight(480)
-                    .create()
-            )
             .openDebug(false)
             .build()
+    }
+
+    private val statusPoll = object : Runnable {
+        override fun run() {
+            val status = root.findViewById<TextView>(R.id.status)
+            status.visibility = if (client.isCameraOpened() == true) View.GONE else View.VISIBLE
+            handler.postDelayed(this, 500)
+        }
     }
 
     override fun getCameraClient(): CameraClient? = client
@@ -56,24 +57,12 @@ class MainActivity : CameraActivity() {
         super.initView()
         root.findViewById<Button>(R.id.btnShot).setOnClickListener { takePhoto() }
         root.findViewById<Button>(R.id.btnGallery).setOnClickListener { openGallery() }
+        handler.post(statusPoll)
     }
 
-    override fun onCameraState(
-        self: MultiCameraClient.Camera,
-        code: ICameraStateCallBack.State,
-        msg: String?
-    ) {
-        runOnUiThread {
-            val status = root.findViewById<TextView>(R.id.status)
-            when (code) {
-                ICameraStateCallBack.State.OPENED -> status.visibility = View.GONE
-                else -> {
-                    status.text = if (code == ICameraStateCallBack.State.ERROR)
-                        "Błąd kamery: $msg" else "Nie wykryto kamery OTG"
-                    status.visibility = View.VISIBLE
-                }
-            }
-        }
+    override fun onDestroy() {
+        handler.removeCallbacks(statusPoll)
+        super.onDestroy()
     }
 
     private fun takePhoto() {
