@@ -1,7 +1,11 @@
 package com.example.usbcam
 
+import android.Manifest
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Environment
 import android.os.Handler
@@ -13,6 +17,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import com.jiangdg.ausbc.CameraClient
 import com.jiangdg.ausbc.base.CameraActivity
 import com.jiangdg.ausbc.callback.ICaptureCallBack
@@ -34,11 +39,37 @@ class MainActivity : CameraActivity() {
             .build()
     }
 
+    private fun perm(p: String) =
+        if (ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED) "tak" else "NIE"
+
     private val statusPoll = object : Runnable {
         override fun run() {
             val status = root.findViewById<TextView>(R.id.status)
-            status.visibility = if (client.isCameraOpened() == true) View.GONE else View.VISIBLE
-            handler.postDelayed(this, 500)
+            if (client.isCameraOpened() == true) {
+                status.visibility = View.GONE
+            } else {
+                val um = getSystemService(Context.USB_SERVICE) as UsbManager
+                val devs = um.deviceList.values
+                val sb = StringBuilder()
+                if (devs.isEmpty()) {
+                    sb.append("Nie wykryto kamery OTG\n(Android nie widzi zadnego urzadzenia USB)\n")
+                } else {
+                    sb.append("Android widzi urzadzenia USB:\n")
+                    for (d in devs) {
+                        sb.append("${d.productName ?: d.deviceName}\n")
+                        sb.append("VID=${d.vendorId} PID=${d.productId} klasa=${d.deviceClass}\n")
+                        sb.append("dostep dla aplikacji: ${if (um.hasPermission(d)) "tak" else "NIE"}\n")
+                    }
+                }
+                sb.append("\nUprawnienia: aparat=${perm(Manifest.permission.CAMERA)}")
+                sb.append(" mikrofon=${perm(Manifest.permission.RECORD_AUDIO)}")
+                sb.append("\nAndroid ${Build.VERSION.RELEASE}, ${Build.MODEL}")
+                status.text = sb.toString()
+                status.textSize = 14f
+                status.translationZ = 20f
+                status.visibility = View.VISIBLE
+            }
+            handler.postDelayed(this, 700)
         }
     }
 
@@ -72,7 +103,7 @@ class MainActivity : CameraActivity() {
         val tmp = File(cacheDir, "shot_${System.currentTimeMillis()}.jpg")
         client.captureImage(object : ICaptureCallBack {
             override fun onBegin() {}
-            override fun onError(error: String?) = toast("Błąd: $error")
+            override fun onError(error: String?) = toast("Blad: $error")
             override fun onComplete(path: String?) {
                 if (path == null) return
                 saveToGallery(File(path))
