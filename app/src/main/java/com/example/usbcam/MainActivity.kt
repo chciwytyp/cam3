@@ -1,6 +1,7 @@
 package com.example.usbcam
 
 import android.Manifest
+import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -29,6 +30,7 @@ import java.io.File
 class MainActivity : CameraActivity() {
     private lateinit var root: View
     private val handler = Handler(Looper.getMainLooper())
+    private val asked = HashSet<String>()
 
     private val client: CameraClient by lazy {
         CameraClient.newBuilder(this)
@@ -42,6 +44,14 @@ class MainActivity : CameraActivity() {
     private fun perm(p: String) =
         if (ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED) "tak" else "NIE"
 
+    private fun askUsbPermission(um: UsbManager, d: android.hardware.usb.UsbDevice) {
+        if (!asked.add(d.deviceName)) return
+        val flags = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+        val intent = Intent("com.example.usbcam.USB_PERMISSION").setPackage(packageName)
+        val pi = PendingIntent.getBroadcast(this, 0, intent, flags)
+        um.requestPermission(d, pi)
+    }
+
     private val statusPoll = object : Runnable {
         override fun run() {
             val status = root.findViewById<TextView>(R.id.status)
@@ -52,14 +62,18 @@ class MainActivity : CameraActivity() {
                 val devs = um.deviceList.values
                 val sb = StringBuilder()
                 if (devs.isEmpty()) {
+                    asked.clear()
                     sb.append("Nie wykryto kamery OTG\n(Android nie widzi zadnego urzadzenia USB)\n")
                 } else {
                     sb.append("Android widzi urzadzenia USB:\n")
                     for (d in devs) {
+                        val has = um.hasPermission(d)
                         sb.append("${d.productName ?: d.deviceName}\n")
                         sb.append("VID=${d.vendorId} PID=${d.productId} klasa=${d.deviceClass}\n")
-                        sb.append("dostep dla aplikacji: ${if (um.hasPermission(d)) "tak" else "NIE"}\n")
+                        sb.append("dostep dla aplikacji: ${if (has) "tak" else "NIE"}\n")
+                        if (!has) askUsbPermission(um, d)
                     }
+                    sb.append("\nJesli pojawi sie okienko - kliknij OK.\n")
                 }
                 sb.append("\nUprawnienia: aparat=${perm(Manifest.permission.CAMERA)}")
                 sb.append(" mikrofon=${perm(Manifest.permission.RECORD_AUDIO)}")
