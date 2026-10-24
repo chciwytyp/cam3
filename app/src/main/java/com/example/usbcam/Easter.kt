@@ -1,18 +1,26 @@
 package com.example.usbcam
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.Handler
+import android.os.Looper
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.Toast
 
 object Easter {
+    private const val HOLD_ON_MS = 5000L
+    private const val HOLD_OFF_MS = 3000L
+
     private val lines = listOf(
-        "🔍 Tryb inspektora SKT: ON. Żaden wyciek",
+        "🔍 Tryb inspektora SKT: ON. ",
         "🕵️ Sprawdzam ASL'e, OLS'e i BSO pod turbiną",
         "🔦 Tryb endoskopu: ON. Zaglądamy w każdą dziurkę",
         "🐞 Wykryto śmierdziela robaka.",
@@ -20,6 +28,7 @@ object Easter {
     )
     private var tries = 0
 
+    @SuppressLint("ClickableViewAccessibility")
     fun attach(activity: Activity, root: View) {
         val gallery = root.findViewById<Button>(R.id.btnGallery)
         val parent = root.findViewById<View>(R.id.cameraContainer).parent as ViewGroup
@@ -32,12 +41,37 @@ object Easter {
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
-        gallery.setOnLongClickListener {
+
+        val h = Handler(Looper.getMainLooper())
+        var fired = false
+
+        val toggle = Runnable {
+            fired = true
             val on = overlay.visibility != View.VISIBLE
             overlay.visibility = if (on) View.VISIBLE else View.GONE
             val msg = if (on) lines[tries++ % lines.size] else "Tryb inspektora: OFF"
             Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
-            true
+            gallery.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        }
+
+        // krotkie dotkniecie nadal otwiera galerie; przytrzymanie 5 s wlacza, 3 s wylacza
+        gallery.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    fired = false
+                    val need = if (overlay.visibility == View.VISIBLE) HOLD_OFF_MS else HOLD_ON_MS
+                    h.postDelayed(toggle, need)
+                    false
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    h.removeCallbacks(toggle)
+                    if (fired) {
+                        v.isPressed = false
+                        true // po easter eggu nie otwieraj galerii
+                    } else false
+                }
+                else -> false
+            }
         }
     }
 }
