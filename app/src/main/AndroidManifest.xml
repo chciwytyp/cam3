@@ -7,7 +7,7 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <application
-        android:label="USB Cam"
+        android:label="EndoCam"
         android:icon="@drawable/ic_launcher"
         android:theme="@style/Theme.AppCompat.NoActionBar"
         android:allowBackup="true"
