@@ -12,6 +12,8 @@ import android.os.Build
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.MediaStore
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -19,6 +21,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -177,6 +180,51 @@ class MainActivity : CameraActivity() {
         recreate()
     }
 
+    // ---------- efekt migawki ----------
+
+    private val hideFrozen = Runnable {
+        root.findViewById<ImageView>(R.id.frozen).visibility = View.GONE
+    }
+
+    @Suppress("DEPRECATION")
+    private fun vibrateShutter() {
+        try {
+            val v = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
+            if (Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                v.vibrate(40)
+            }
+        } catch (e: Exception) {
+            // brak wibracji - pomijamy
+        }
+    }
+
+    private fun shutterEffect() {
+        val frozen = root.findViewById<ImageView>(R.id.frozen)
+        val flash = root.findViewById<View>(R.id.flash)
+        // zamrozenie: kopia aktualnej klatki podgladu
+        try {
+            val bmp = camView.bitmap
+            if (bmp != null) {
+                frozen.setImageBitmap(bmp)
+                frozen.visibility = View.VISIBLE
+            }
+        } catch (e: Exception) {
+            // bez zamrozenia - zostaje sam rozblysk
+        }
+        // delikatny bialy rozblysk
+        flash.animate().cancel()
+        flash.alpha = 0.7f
+        flash.visibility = View.VISIBLE
+        flash.animate().alpha(0f).setDuration(150).withEndAction {
+            flash.visibility = View.GONE
+        }.start()
+        vibrateShutter()
+        handler.removeCallbacks(hideFrozen)
+        handler.postDelayed(hideFrozen, 450)
+    }
+
     // ---------- petla stanu ----------
 
     private val statusPoll = object : Runnable {
@@ -293,6 +341,7 @@ class MainActivity : CameraActivity() {
         if (client.isCameraOpened() != true) {
             toast("Brak kamery"); return
         }
+        shutterEffect()
         val tmp = File(cacheDir, "shot_${System.currentTimeMillis()}.jpg")
         client.captureImage(object : ICaptureCallBack {
             override fun onBegin() {}
