@@ -6,6 +6,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Environment
@@ -28,9 +29,17 @@ import com.jiangdg.ausbc.widget.IAspectRatio
 import java.io.File
 
 class MainActivity : CameraActivity() {
+    companion object {
+        // przetrwa odswiezenie aktywnosci (recreate), zeby nie robic petli
+        private var recoveries = 0
+        private const val STUCK_MS = 6000L
+        private const val MAX_RECOVERIES = 3
+    }
+
     private lateinit var root: View
     private val handler = Handler(Looper.getMainLooper())
     private val asked = HashSet<String>()
+    private var stuckSince = 0L
 
     private val client: CameraClient by lazy {
         CameraClient.newBuilder(this)
@@ -44,7 +53,7 @@ class MainActivity : CameraActivity() {
     private fun perm(p: String) =
         if (ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED) "tak" else "NIE"
 
-    private fun askUsbPermission(um: UsbManager, d: android.hardware.usb.UsbDevice) {
+    private fun askUsbPermission(um: UsbManager, d: UsbDevice) {
         if (!asked.add(d.deviceName)) return
         val flags = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
         val intent = Intent("com.example.usbcam.USB_PERMISSION").setPackage(packageName)
@@ -57,23 +66,45 @@ class MainActivity : CameraActivity() {
             val status = root.findViewById<TextView>(R.id.status)
             if (client.isCameraOpened() == true) {
                 status.visibility = View.GONE
+                stuckSince = 0L
+                recoveries = 0
             } else {
                 val um = getSystemService(Context.USB_SERVICE) as UsbManager
                 val devs = um.deviceList.values
                 val sb = StringBuilder()
                 if (devs.isEmpty()) {
                     asked.clear()
+                    stuckSince = 0L
+                    recoveries = 0
                     sb.append("Nie wykryto kamery OTG\n(Android nie widzi zadnego urzadzenia USB)\n")
                 } else {
                     sb.append("Android widzi urzadzenia USB:\n")
+                    var allAllowed = true
                     for (d in devs) {
                         val has = um.hasPermission(d)
                         sb.append("${d.productName ?: d.deviceName}\n")
                         sb.append("VID=${d.vendorId} PID=${d.productId} klasa=${d.deviceClass}\n")
                         sb.append("dostep dla aplikacji: ${if (has) "tak" else "NIE"}\n")
-                        if (!has) askUsbPermission(um, d)
+                        if (!has) {
+                            allAllowed = false
+                            askUsbPermission(um, d)
+                        }
                     }
-                    sb.append("\nJesli pojawi sie okienko - kliknij OK.\n")
+                    if (allAllowed) {
+                        val now = System.currentTimeMillis()
+                        if (stuckSince == 0L) {
+                            stuckSince = now
+                        } else if (now - stuckSince > STUCK_MS && recoveries < MAX_RECOVERIES) {
+                            recoveries++
+                            stuckSince = 0L
+                            recreate()
+                            return
+                        }
+                    } else {
+                        stuckSince = 0L
+                        sb.append("\nJesli pojawi sie okienko - kliknij OK.\n")
+                    }
+                    sb.append("\nObraz sie nie pojawia? Dotknij ekranu, aby odswiezyc.\n")
                 }
                 sb.append("\nUprawnienia: aparat=${perm(Manifest.permission.CAMERA)}")
                 sb.append(" mikrofon=${perm(Manifest.permission.RECORD_AUDIO)}")
@@ -102,12 +133,30 @@ class MainActivity : CameraActivity() {
         super.initView()
         root.findViewById<Button>(R.id.btnShot).setOnClickListener { takePhoto() }
         root.findViewById<Button>(R.id.btnGallery).setOnClickListener { openGallery() }
+        root.findViewById<TextView>(R.id.status).setOnClickListener {
+            recoveries = 0
+            recreate()
+        }
+        deleteGhostEntries()
         handler.post(statusPoll)
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(statusPoll)
         super.onDestroy()
+    }
+
+    // usuwa puste wpisy w galerii zakladane przez biblioteke
+    private fun deleteGhostEntries() {
+        try {
+            contentResolver.delete(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                "${MediaStore.Images.Media.DISPLAY_NAME} LIKE ?",
+                arrayOf("%usbcam_cache%")
+            )
+        } catch (e: Exception) {
+            // brak uprawnien do usuniecia - pomijamy
+        }
     }
 
     private fun takePhoto() {
@@ -122,6 +171,8 @@ class MainActivity : CameraActivity() {
                 if (path == null) return
                 saveToGallery(File(path))
                 toast("Zapisano w galerii")
+                deleteGhostEntries()
+                handler.postDelayed({ deleteGhostEntries() }, 1500)
             }
         }, tmp.absolutePath)
     }
