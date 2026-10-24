@@ -13,10 +13,12 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,6 +44,14 @@ class MainActivity : CameraActivity() {
     private val asked = HashSet<String>()
     private var stuckSince = 0L
 
+    // rozdzielczosci
+    private val camView by lazy { AspectRatioTextureView(this) }
+    private val prefs by lazy { getSharedPreferences("usbcam", Context.MODE_PRIVATE) }
+    private var sizes: List<Pair<Int, Int>> = emptyList()
+    private var sizeIdx = -1
+    private var setupDone = false
+    private var resBusy = false
+
     private val client: CameraClient by lazy {
         CameraClient.newBuilder(this)
             .setEnableGLES(true)
@@ -56,7 +66,6 @@ class MainActivity : CameraActivity() {
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        // gdy aparat i mikrofon przyznane - odswiez, zeby biblioteka je zobaczyla
         if (granted(Manifest.permission.CAMERA) && granted(Manifest.permission.RECORD_AUDIO)) {
             recreate()
         }
@@ -88,6 +97,88 @@ class MainActivity : CameraActivity() {
         um.requestPermission(d, pi)
     }
 
+    private fun usbKey(): String {
+        val um = getSystemService(Context.USB_SERVICE) as UsbManager
+        val d = um.deviceList.values.firstOrNull()
+        return if (d != null) "res_${d.vendorId}_${d.productId}" else "res_default"
+    }
+
+    // ---------- rozdzielczosc i proporcje ----------
+
+    private fun parseSize(s: String?): Pair<Int, Int>? {
+        val p = s?.split("x") ?: return null
+        if (p.size != 2) return null
+        val w = p[0].toIntOrNull() ?: return null
+        val h = p[1].toIntOrNull() ?: return null
+        return w to h
+    }
+
+    private fun applyAspect(w: Int, h: Int) {
+        // wysrodkowanie obrazu z zachowaniem proporcji (czarne pasy zamiast rozciagania)
+        camView.layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.CENTER
+        )
+        camView.setAspectRatio(w, h)
+    }
+
+    private fun showSize(s: Pair<Int, Int>) {
+        root.findViewById<Button>(R.id.btnRes).text = "${s.first}x${s.second}"
+    }
+
+    private fun setupResolution() {
+        val raw = try { client.getAllPreviewSizes() } catch (e: Exception) { null }
+        val list = raw?.map { it.width to it.height }
+            ?.filter { it.first > 0 && it.second > 0 }
+            ?.distinct()
+            ?.sortedWith(compareBy<Pair<Int, Int>>({ it.first * it.second }, { it.first }))
+            ?: emptyList()
+        if (list.isEmpty()) return // kamera jeszcze nie podala listy - probujemy ponownie
+
+        val def = 640 to 480
+        val saved = parseSize(prefs.getString(usbKey(), null))
+        var apply = false
+        val chosen: Pair<Int, Int> = when {
+            saved != null && list.contains(saved) -> { apply = saved != def; saved }
+            list.contains(def) -> def
+            else -> {
+                apply = true
+                list.minByOrNull { Math.abs(it.first * it.second - 640 * 480) } ?: list[0]
+            }
+        }
+        sizes = list
+        sizeIdx = list.indexOf(chosen)
+        setupDone = true
+        if (apply) {
+            try { client.updateResolution(chosen.first, chosen.second) } catch (e: Exception) { }
+        }
+        showSize(chosen)
+        root.findViewById<Button>(R.id.btnRes).visibility =
+            if (list.size > 1) View.VISIBLE else View.GONE
+        handler.postDelayed({ applyAspect(chosen.first, chosen.second) }, 400)
+    }
+
+    private fun nextResolution() {
+        if (resBusy || sizes.size < 2) return
+        resBusy = true
+        sizeIdx = (sizeIdx + 1) % sizes.size
+        val s = sizes[sizeIdx]
+        try { client.updateResolution(s.first, s.second) } catch (e: Exception) { }
+        prefs.edit().putString(usbKey(), "${s.first}x${s.second}").apply()
+        showSize(s)
+        handler.postDelayed({ applyAspect(s.first, s.second) }, 400)
+        handler.postDelayed({ resBusy = false }, 1500)
+    }
+
+    private fun resetResolution() {
+        prefs.edit().remove(usbKey()).apply()
+        toast("Przywrocono domyslna rozdzielczosc")
+        recreate()
+    }
+
+    // ---------- petla stanu ----------
+
     private val statusPoll = object : Runnable {
         override fun run() {
             val status = root.findViewById<TextView>(R.id.status)
@@ -95,7 +186,12 @@ class MainActivity : CameraActivity() {
                 status.visibility = View.GONE
                 stuckSince = 0L
                 recoveries = 0
+                if (!setupDone) setupResolution()
             } else {
+                setupDone = false
+                sizes = emptyList()
+                root.findViewById<Button>(R.id.btnRes).visibility = View.GONE
+
                 val um = getSystemService(Context.USB_SERVICE) as UsbManager
                 val devs = um.deviceList.values
                 val sb = StringBuilder()
@@ -154,7 +250,7 @@ class MainActivity : CameraActivity() {
         return root
     }
 
-    override fun getCameraView(): IAspectRatio = AspectRatioTextureView(this)
+    override fun getCameraView(): IAspectRatio = camView
 
     override fun getCameraViewContainer(): ViewGroup = root.findViewById(R.id.cameraContainer)
 
@@ -162,6 +258,10 @@ class MainActivity : CameraActivity() {
         super.initView()
         root.findViewById<Button>(R.id.btnShot).setOnClickListener { takePhoto() }
         root.findViewById<Button>(R.id.btnGallery).setOnClickListener { openGallery() }
+        root.findViewById<Button>(R.id.btnRes).apply {
+            setOnClickListener { nextResolution() }
+            setOnLongClickListener { resetResolution(); true }
+        }
         root.findViewById<TextView>(R.id.status).setOnClickListener {
             recoveries = 0
             recreate()
@@ -172,7 +272,7 @@ class MainActivity : CameraActivity() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(statusPoll)
+        handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
