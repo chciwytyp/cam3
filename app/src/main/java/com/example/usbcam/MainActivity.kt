@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.jiangdg.ausbc.CameraClient
 import com.jiangdg.ausbc.base.CameraActivity
@@ -50,8 +51,34 @@ class MainActivity : CameraActivity() {
             .build()
     }
 
-    private fun perm(p: String) =
-        if (ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED) "tak" else "NIE"
+    // ---------- uprawnienia ----------
+
+    private val permLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        // gdy aparat i mikrofon przyznane - odswiez, zeby biblioteka je zobaczyla
+        if (granted(Manifest.permission.CAMERA) && granted(Manifest.permission.RECORD_AUDIO)) {
+            recreate()
+        }
+    }
+
+    private fun granted(p: String) =
+        ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+
+    private fun perm(p: String) = if (granted(p)) "tak" else "NIE"
+
+    private fun requestMissingPermissions() {
+        val needed = mutableListOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        )
+        if (Build.VERSION.SDK_INT <= 28) needed.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        val missing = needed.filter { !granted(it) }
+        if (missing.isNotEmpty()) permLauncher.launch(missing.toTypedArray())
+    }
+
+    // ---------- USB ----------
 
     private fun askUsbPermission(um: UsbManager, d: UsbDevice) {
         if (!asked.add(d.deviceName)) return
@@ -118,6 +145,8 @@ class MainActivity : CameraActivity() {
         }
     }
 
+    // ---------- ekran ----------
+
     override fun getCameraClient(): CameraClient? = client
 
     override fun getRootView(layoutInflater: LayoutInflater): View {
@@ -138,6 +167,7 @@ class MainActivity : CameraActivity() {
             recreate()
         }
         deleteGhostEntries()
+        handler.post { requestMissingPermissions() }
         handler.post(statusPoll)
     }
 
@@ -189,11 +219,16 @@ class MainActivity : CameraActivity() {
         src.delete()
     }
 
+    // galeria w osobnym zadaniu - nasza aplikacja zostaje na ekranie kamery
     private fun openGallery() {
         try {
-            startActivity(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_GALLERY))
+            val i = Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_GALLERY)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
         } catch (e: Exception) {
-            startActivity(Intent(Intent.ACTION_VIEW, MediaStore.Images.Media.EXTERNAL_CONTENT_URI))
+            val i = Intent(Intent.ACTION_VIEW, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
         }
     }
 
