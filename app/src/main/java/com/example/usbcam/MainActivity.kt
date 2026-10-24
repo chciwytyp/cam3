@@ -317,6 +317,7 @@ class MainActivity : CameraActivity() {
         deleteGhostEntries()
         handler.post { requestMissingPermissions() }
         handler.post(statusPoll)
+        Easter.attach(this, root)
     }
 
     override fun onDestroy() {
